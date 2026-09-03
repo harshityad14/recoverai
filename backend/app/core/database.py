@@ -58,3 +58,20 @@ def check_db_connection() -> tuple[bool, str]:
     except Exception as exc:
         logger.warning("Database connection check failed: %s", exc)
         return False, f"disconnected: {exc.__class__.__name__}"
+
+
+def init_db(bind_engine=None) -> None:
+    """Initialize database tables defined by SQLAlchemy models.
+
+    Creates all tables registered with declarative Base if they do not exist.
+    Supports supplying an optional engine override (e.g. SQLite for testing).
+
+    Args:
+        bind_engine: Optional engine override (defaults to application engine).
+    """
+    # Import all models to ensure registration with Base.metadata
+    import app.models  # noqa: F401
+
+    target_engine = bind_engine or engine
+    Base.metadata.create_all(bind=target_engine)
+    logger.info("Database tables initialized successfully on engine: %s", target_engine.url)

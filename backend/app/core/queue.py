@@ -28,6 +28,7 @@ class RedisQueueClient(Protocol):
     """
 
     def lpush(self, name: str, *values: Any) -> int: ...
+    def rpop(self, name: str) -> Optional[str]: ...
     def get(self, name: str) -> Optional[str]: ...
     def set(self, name: str, value: Any, ex: Optional[int] = None) -> bool: ...
     def llen(self, name: str) -> int: ...
@@ -97,3 +98,32 @@ def enqueue_webhook_event(
         queue_length,
     )
     return queue_length
+
+
+def pop_webhook_event(
+    redis_client: RedisQueueClient,
+    queue_name: str = WEBHOOK_QUEUE_NAME,
+) -> Optional[Dict[str, Any]]:
+    """Pop and deserialize a webhook event from the Redis queue.
+
+    Args:
+        redis_client: Redis client instance.
+        queue_name: The Redis list key to pop from.
+
+    Returns:
+        The deserialized event dictionary, or None if the queue is empty.
+    """
+    if not hasattr(redis_client, "rpop"):
+        logger.warning("Redis client does not support rpop")
+        return None
+
+    raw = redis_client.rpop(queue_name)
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = raw.decode("utf-8")
+        return json.loads(raw)
+    except Exception as exc:
+        logger.error("Failed to deserialize event from queue '%s': %s", queue_name, exc)
+        return None

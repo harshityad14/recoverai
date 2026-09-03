@@ -48,6 +48,12 @@ class FakeRedis:
             self._lists[name].insert(0, v)
         return len(self._lists[name])
 
+    def rpop(self, name: str) -> Optional[str]:
+        lst = self._lists.get(name, [])
+        if lst:
+            return lst.pop()
+        return None
+
     def get(self, name: str) -> Optional[str]:
         return self._data.get(name)
 
