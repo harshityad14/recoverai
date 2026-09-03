@@ -71,3 +71,15 @@ Dashboard + Audit Log
 ### 7. Outcome Tracker, PostgreSQL & Dashboard
 - **Purpose**: Tracks recovery outcomes (`payment.captured` or final `payment.failed`), persists audit events to PostgreSQL, and surfaces real-time metrics on the React dashboard.
 - **Phase**: PostgreSQL config and base schema in Phase 1; complete telemetry in Phase 4.
+
+---
+
+## 4. Transaction Lifecycle & Attribution Semantics
+
+To prevent false attribution of payment recoveries, RecoverAI distinguishes between organic captures and AI-assisted recoveries:
+
+- **`FAILED`**: Payment failed and has not yet been successfully recovered.
+- **`RECOVERY_PENDING`**: RecoverAI has identified the payment for recovery processing.
+- **`CAPTURED`**: Razorpay reports the payment was successfully captured, but without verified evidence that RecoverAI caused the success (e.g., customer completed checkout organically).
+- **`RECOVERED`**: Payment was successfully captured as a direct result of a verified RecoverAI recovery action.
+- **`STOPPED`**: RecoverAI has determined that recovery should not continue.
