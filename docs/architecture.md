@@ -56,21 +56,26 @@ Dashboard + Audit Log
 - **Purpose**: Maps Razorpay error codes (e.g., `BAD_REQUEST_PAYMENT_TIMED_OUT`, `GATEWAY_ERROR`, `INSUFFICIENT_FUNDS`) to an actionable domain taxonomy and enriches failure events with customer profile history.
 - **Phase**: Scheduled for Phase 3.
 
-### 4. LLM Decision Engine
-- **Purpose**: Evaluates the enriched failure event and generates a structured recovery strategy (e.g., smart retry, alternative payment method link via WhatsApp/SMS, customer discount offer, delay window).
-- **Phase**: Scheduled for Phase 3.
+### 4. LLM Decision Engine (Phase 4 — Advisory Recommender)
+- **Purpose**: Consumes the normalized `PaymentAnalysis` from Phase 3 and produces a `RecoveryDecision` recommending exactly one of `RETRY`, `PAYMENT_LINK`, `REMINDER`, or `STOP`.
+- **Architecture**: `PaymentAnalysis → DecisionEngine → LLMClient (Protocol) → RecoveryDecision`
+- **Provider**: Google Gemini via `GeminiLLMClient` adapter (production). `MockLLMClient` for tests. The `LLMClient` protocol allows future provider swaps without changing the `DecisionEngine`.
+- **Boundary**: The Decision Engine is an advisory RECOMMENDER only. It cannot execute actions, call Razorpay APIs, or modify transaction state. Its output is a suggestion — not a permission or authorization.
+- **Safe Fallback**: On any LLM provider error, timeout, malformed response, or validation failure, the engine deterministically returns `action=STOP, confidence=0.0`.
+- **Phase**: Implemented in Phase 4.
 
-### 5. Deterministic Safety Guard
-- **Purpose**: Hard business rule validation layer. Ensures LLM recommendations do not violate retry limits, frequency caps, or customer communication policies before any action is executed.
-- **Phase**: Scheduled for Phase 3.
+### 5. Deterministic Safety Guard (Phase 5 — Authoritative Enforcer)
+- **Purpose**: Hard business rule validation layer. Independently validates, overrides, or blocks LLM recommendations before any action is executed. Enforces retry limits, frequency caps, risk flag blocking, transaction state guards, and customer communication policies.
+- **Boundary**: Phase 5 is the sole authorization gateway. It can ALLOW, BLOCK, or OVERRIDE any LLM recommendation regardless of confidence.
+- **Phase**: Scheduled for Phase 5.
 
 ### 6. Action Executor & Razorpay Integration
-- **Purpose**: Dispatches verified recovery actions against Razorpay Test Mode APIs (e.g., generating payment links, initiating customer re-prompts).
-- **Phase**: Scheduled for Phase 4.
+- **Purpose**: Dispatches verified recovery actions against Razorpay Test Mode APIs (e.g., generating payment links, initiating customer re-prompts). Executes only if Phase 5 allows.
+- **Phase**: Scheduled for Phase 6.
 
 ### 7. Outcome Tracker, PostgreSQL & Dashboard
 - **Purpose**: Tracks recovery outcomes (`payment.captured` or final `payment.failed`), persists audit events to PostgreSQL, and surfaces real-time metrics on the React dashboard.
-- **Phase**: PostgreSQL config and base schema in Phase 1; complete telemetry in Phase 4.
+- **Phase**: PostgreSQL config and base schema in Phase 1; complete telemetry in Phase 7.
 
 ---
 
@@ -83,3 +88,39 @@ To prevent false attribution of payment recoveries, RecoverAI distinguishes betw
 - **`CAPTURED`**: Razorpay reports the payment was successfully captured, but without verified evidence that RecoverAI caused the success (e.g., customer completed checkout organically).
 - **`RECOVERED`**: Payment was successfully captured as a direct result of a verified RecoverAI recovery action.
 - **`STOPPED`**: RecoverAI has determined that recovery should not continue.
+
+---
+
+## 5. Decision Engine Pipeline & Responsibility Boundary
+
+**"LLM recommends. Deterministic safety guard decides."**
+
+```text
+Phase 3 Normalized PaymentAnalysis
+               │
+               ▼
+   ┌─────────────────────────────────────────────┐
+   │  Phase 4: DecisionEngine.recommend_action() │
+   │  (ADVISORY — produces RECOMMENDATION only)  │
+   └──────────────────┬──────────────────────────┘
+                      │
+                      ▼
+            RecoveryDecision
+            (action, confidence, rationale)
+            ⚠️ RECOMMENDATION, not permission
+                      │
+                      ▼
+   ┌──────────────────────────────────────────────┐
+   │  Phase 5: Deterministic Safety Guard         │
+   │  (AUTHORITATIVE — makes FINAL decision)      │
+   │  Can ALLOW, BLOCK, or OVERRIDE               │
+   └──────────────────┬───────────────────────────┘
+                      │
+                      ▼
+   ┌──────────────────────────────────────────────┐
+   │  Phase 6: Action Executor                    │
+   │  (Executes ONLY if Phase 5 allows)           │
+   └──────────────────────────────────────────────┘
+```
+
+The LLM has zero execution privileges. It cannot call Razorpay APIs, modify transaction states, create payment links, retry payments, send customer messages, or bypass safety rules.
