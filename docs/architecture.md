@@ -174,3 +174,84 @@ Phase 3 Normalized PaymentAnalysis
 ```
 
 The LLM has zero execution privileges. It cannot call Razorpay APIs, modify transaction states, create payment links, retry payments, send customer messages, or bypass safety rules.
+
+---
+
+## 6. Phase 7 — End-to-End Recovery Pipeline & Outcome Tracking
+
+### Complete End-to-End Orchestration Flow
+
+```text
+Razorpay payment.failed
+        ↓
+Webhook Handler (HMAC-SHA256 Signature Verification)
+        ↓
+Redis Queue (LPUSH/RPOP FIFO)
+        ↓
+Webhook Worker (Orchestration Engine)
+        ↓
+Payment Analysis (Failure Classifier + Customer Context)
+        ↓
+Gemini Decision Engine (Advisory Recommender)
+        ↓
+Deterministic Safety Guard (Authoritative Business Rules)
+        ↓
+Action Executor (Authorized Action Dispatcher)
+        ↓
+Razorpay Test Mode (POST /v1/payment_links)
+        ↓
+Transaction State: RECOVERY_PENDING
+        ↓
+Customer Pays via Recovery Link
+        ↓
+Razorpay payment.captured
+        ↓
+Causality Verification (Payment Link ID / Reference ID / Notes)
+        ↓
+Transaction State: RECOVERED (or CAPTURED if organic)
+        ↓
+Outcome Tracker & Audit Trail (RetryHistory)
+        ↓
+Deterministic Metrics (RecoveryMetricsService)
+```
+
+### Core Recovery Principles
+
+> **"Payment Link creation is not payment recovery."**
+>
+> Creating a Razorpay Payment Link transitions a transaction to `RECOVERY_PENDING`. Payment recovery occurs only when the customer successfully pays through the recovery channel and Razorpay emits a verified `payment.captured` event.
+
+> **"RECOVERED means RecoverAI can establish that the successful payment was caused by a RecoverAI recovery action."**
+>
+> Causality is strictly verified:
+> 1. The captured payment contains a `payment_link_id` matching the RecoverAI-generated payment link.
+> 2. Or the captured payment contains metadata `notes.transaction_id` or `notes.recovered_by == "RecoverAI"`.
+> 3. An organic payment for an order where the customer did not use the recovery action transitions to `CAPTURED`, never `RECOVERED`.
+
+### Deterministic Recovery Metrics
+
+All metrics are calculated deterministically from database state with zero LLM involvement:
+
+- **`revenue_at_risk`**: Sum of `amount` (paise) for eligible failed or recovery-pending transactions that have not been recovered.
+- **`recovered_revenue`**: Sum of `amount` (paise) for transactions in `RECOVERED` state.
+- **`recovery_rate`**:
+  $$\text{recovery\_rate} = \frac{\text{total\_recovered\_transactions}}{\text{eligible\_failed\_transactions}}$$
+  If $\text{eligible\_failed\_transactions} == 0$, $\text{recovery\_rate} = 0.0$. Division by zero is strictly guarded.
+- **`total_failed_transactions`**: Count of transactions currently in `FAILED` status.
+- **`total_recovered_transactions`**: Count of transactions in `RECOVERED` status.
+- **`payment_links_created`**: Count of transactions with created payment links.
+- **`stopped_transactions`**: Count of transactions in `STOPPED` status.
+
+### End-to-End Audit Trail
+
+Every recovery attempt is fully auditable through extended `RetryHistory` records:
+- `recommended_action`: AI advisory recommendation
+- `confidence`: AI recommendation confidence score
+- `ai_rationale`: AI reasoning (sanitized, zero secrets)
+- `safety_decision`: Safety Guard verdict (`APPROVE`, `OVERRIDE`, `STOP`)
+- `safety_rule_id`: Specific safety rule triggered
+- `final_action`: Authorized recovery action
+- `execution_result`: Execution status (`SUCCESS`, `FAILED`, `ACTION_NOT_SUPPORTED`, `STOPPED`)
+- `error_code` & `error_message`: Structured failure tracking
+- `recovered_amount`: Recovered amount in paise upon verified payment capture
+- `recovered_at`: Timestamp when payment capture was verified

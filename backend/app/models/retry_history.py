@@ -4,7 +4,7 @@ Logs individual recovery attempts executed by RecoverAI for a given transaction.
 """
 
 import uuid
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import relationship
 
 from app.models.base import Base
@@ -47,13 +47,70 @@ class RetryHistory(Base):
     result = Column(
         String(50),
         nullable=True,
-        doc="Result outcome of attempt (e.g., SUCCESS, FAILED, EXPIRED, PENDING)",
+        doc="Result outcome of attempt (e.g., SUCCESS, FAILED, EXPIRED, PENDING, LINK_CREATED)",
     )
     external_id = Column(
         String(64),
         nullable=True,
         index=True,
         doc="External identifier such as Razorpay payment_link_id",
+    )
+
+    # ── Phase 7 End-to-End Audit Trail & Outcome Tracking ──
+    recommended_action = Column(
+        String(50),
+        nullable=True,
+        doc="Advisory action recommended by AI decision engine",
+    )
+    confidence = Column(
+        Float,
+        nullable=True,
+        doc="AI recommendation confidence score (0.0 to 1.0)",
+    )
+    ai_rationale = Column(
+        Text,
+        nullable=True,
+        doc="Explanation/reasoning provided by AI decision engine",
+    )
+    safety_decision = Column(
+        String(50),
+        nullable=True,
+        doc="Deterministic verdict from Safety Guard (APPROVE, OVERRIDE, STOP)",
+    )
+    safety_rule_id = Column(
+        String(50),
+        nullable=True,
+        doc="Identifier of the specific safety rule triggered",
+    )
+    final_action = Column(
+        String(50),
+        nullable=True,
+        doc="Final action authorized by Safety Guard",
+    )
+    execution_result = Column(
+        String(50),
+        nullable=True,
+        doc="Result of the executed action (SUCCESS, FAILED, ACTION_NOT_SUPPORTED, etc.)",
+    )
+    error_code = Column(
+        String(50),
+        nullable=True,
+        doc="Error code if execution failed or was unsupported",
+    )
+    error_message = Column(
+        Text,
+        nullable=True,
+        doc="Error description if execution failed or was unsupported",
+    )
+    recovered_amount = Column(
+        Integer,
+        nullable=True,
+        doc="Recovered amount in currency subunits upon verified payment capture",
+    )
+    recovered_at = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="Timestamp when recovery was verified via payment capture",
     )
 
     # Relationships

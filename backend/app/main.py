@@ -7,6 +7,7 @@ Phase 2: Razorpay webhook handler, signature verification, idempotency, and Redi
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.health import router as health_router
+from app.api.routes.metrics import router as metrics_router
 from app.api.routes.webhook import router as webhook_router
 from app.core.config import settings
 
@@ -34,9 +35,13 @@ app.include_router(health_router)
 # Mount webhook routes (/webhooks/razorpay)
 app.include_router(webhook_router)
 
+# Mount metrics routes (/metrics/recovery)
+app.include_router(metrics_router)
+
 # Mount API V1 prefixed routes
 app.include_router(health_router, prefix=settings.API_V1_PREFIX)
 app.include_router(webhook_router, prefix=settings.API_V1_PREFIX)
+app.include_router(metrics_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["Root"])

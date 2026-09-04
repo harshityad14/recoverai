@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
+from app.models.retry_history import RetryHistory
 from app.models.risk_flag import RiskFlag
 from app.models.transaction import Transaction
 from app.schemas.customer import CustomerHistorySummary
@@ -265,8 +266,8 @@ class CustomerRepository:
         """
         txn = self.get_transaction_by_payment_id(razorpay_payment_id)
         if txn:
-            # Preserve terminal/successful statuses (CAPTURED, RECOVERED)
-            if txn.status not in ("RECOVERED", "CAPTURED"):
+            # Preserve active recovery and terminal statuses (CAPTURED, RECOVERED, RECOVERY_PENDING, STOPPED)
+            if txn.status not in ("RECOVERED", "CAPTURED", "RECOVERY_PENDING", "STOPPED"):
                 txn.status = "FAILED"
             txn.failure_category = failure_category or txn.failure_category
             txn.failure_code = failure_code or txn.failure_code
@@ -376,11 +377,15 @@ class CustomerRepository:
             )
 
         if txn:
-            # Determine attribution: was this capture caused by RecoverAI?
-            is_recovered_by_recoverai = (
-                txn.payment_link_id is not None
-                or plink is not None
-                or notes_dict.get("recovered_by") == "RecoverAI"
+            # Determine causality attribution: did this successful payment occur because of a RecoverAI recovery action?
+            # 1. Direct payment link match: incoming plink matches txn.payment_link_id
+            # 2. Incoming payment was identified by plink directly
+            # 3. Explicit recovery metadata: recovered_by == "RecoverAI" or notes transaction_id matches txn.id
+            is_recovered_by_recoverai = bool(
+                (plink and txn.payment_link_id and plink == txn.payment_link_id)
+                or (plink and self.get_transaction_by_payment_link_id(plink) is not None)
+                or (notes_dict.get("recovered_by") == "RecoverAI")
+                or ("transaction_id" in notes_dict and str(notes_dict["transaction_id"]) == str(txn.id))
             )
 
             if is_recovered_by_recoverai:
@@ -390,6 +395,26 @@ class CustomerRepository:
                     txn.id,
                     txn.payment_link_id or plink,
                 )
+                # Update retry history record with verified outcome and recovered amount
+                retry_rec = None
+                if plink:
+                    retry_rec = (
+                        self.db.query(RetryHistory)
+                        .filter(RetryHistory.transaction_id == txn.id, RetryHistory.external_id == plink)
+                        .first()
+                    )
+                if not retry_rec:
+                    retry_rec = (
+                        self.db.query(RetryHistory)
+                        .filter(RetryHistory.transaction_id == txn.id)
+                        .order_by(RetryHistory.attempt_number.desc())
+                        .first()
+                    )
+                if retry_rec:
+                    retry_rec.result = "SUCCESS"
+                    retry_rec.execution_result = "SUCCESS"
+                    retry_rec.recovered_amount = int(amount) if amount is not None else txn.amount
+                    retry_rec.recovered_at = datetime.now(timezone.utc)
             elif txn.status != "RECOVERED":
                 # Organic / unrelated capture
                 txn.status = "CAPTURED"
@@ -425,12 +450,14 @@ class CustomerRepository:
         self,
         razorpay_payment_id: str,
         recovery_action: Optional[str] = None,
+        recovered_amount: Optional[int] = None,
     ) -> Optional[Transaction]:
         """Mark a transaction as RECOVERED when causality from a RecoverAI recovery action is confirmed.
 
         Args:
             razorpay_payment_id: Razorpay payment ID.
             recovery_action: The recovery action that produced the recovery.
+            recovered_amount: Optional recovered amount in subunits.
 
         Returns:
             Optional[Transaction]: Updated transaction or None.
@@ -438,6 +465,17 @@ class CustomerRepository:
         txn = self.get_transaction_by_payment_id(razorpay_payment_id)
         if txn:
             txn.status = "RECOVERED"
+            retry_rec = (
+                self.db.query(RetryHistory)
+                .filter(RetryHistory.transaction_id == txn.id)
+                .order_by(RetryHistory.attempt_number.desc())
+                .first()
+            )
+            if retry_rec:
+                retry_rec.result = "SUCCESS"
+                retry_rec.execution_result = "SUCCESS"
+                retry_rec.recovered_amount = recovered_amount or txn.amount
+                retry_rec.recovered_at = datetime.now(timezone.utc)
             self.db.commit()
             self.db.refresh(txn)
             logger.info("Transaction %s marked RECOVERED (action=%s)", txn.id, recovery_action)
