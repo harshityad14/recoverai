@@ -67,7 +67,18 @@ Dashboard + Audit Log
 ### 5. Deterministic Safety Guard (Phase 5 — Authoritative Enforcer)
 - **Purpose**: Hard business rule validation layer. Independently validates, overrides, or blocks LLM recommendations before any action is executed. Enforces retry limits, frequency caps, risk flag blocking, transaction state guards, and customer communication policies.
 - **Boundary**: Phase 5 is the sole authorization gateway. It can ALLOW, BLOCK, or OVERRIDE any LLM recommendation regardless of confidence.
-- **Phase**: Scheduled for Phase 5.
+- **Core Principle**: "LLM recommendations are untrusted input. The deterministic Safety Guard is the final authority."
+- **Rules Priority**:
+  1. Already CAPTURED/RECOVERED
+  2. Already STOPPED
+  3. Invalid decision
+  4. STOP recommendation
+  5. Confidence threshold
+  6. Retry attempt limit
+  7. Action eligibility
+  8. APPROVE
+- **Isolation**: Pure deterministic business logic with zero external API calls (no Gemini, no Razorpay, no Redis, no network).
+- **Phase**: Implemented in Phase 5.
 
 ### 6. Action Executor & Razorpay Integration
 - **Purpose**: Dispatches verified recovery actions against Razorpay Test Mode APIs (e.g., generating payment links, initiating customer re-prompts). Executes only if Phase 5 allows.
@@ -95,6 +106,18 @@ To prevent false attribution of payment recoveries, RecoverAI distinguishes betw
 
 **"LLM recommends. Deterministic safety guard decides."**
 
+> "LLM recommendations are untrusted input. The deterministic Safety Guard is the final authority."
+
+```text
+Gemini Decision Engine
+        ↓
+Deterministic Safety Guard
+        ↓
+Final Recovery Action
+        ↓
+Action Executor
+```
+
 ```text
 Phase 3 Normalized PaymentAnalysis
                │
@@ -115,6 +138,11 @@ Phase 3 Normalized PaymentAnalysis
    │  (AUTHORITATIVE — makes FINAL decision)      │
    │  Can ALLOW, BLOCK, or OVERRIDE               │
    └──────────────────┬───────────────────────────┘
+                      │
+                      ▼
+            SafetyDecision
+            (final_action, decision, rule_id)
+            🔒 AUTHORITATIVE FINAL ACTION
                       │
                       ▼
    ┌──────────────────────────────────────────────┐

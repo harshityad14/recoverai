@@ -6,6 +6,7 @@ from app.schemas.taxonomy import FailureCategory
 from app.schemas.customer import CustomerHistorySummary
 from app.schemas.analysis import PaymentAnalysis
 from app.schemas.transaction import TransactionStatus
+from app.schemas.safety import GuardDecision, SafetyRuleId, SafetyDecision
 
 __all__ = [
     "HealthResponse",
@@ -16,4 +17,7 @@ __all__ = [
     "CustomerHistorySummary",
     "PaymentAnalysis",
     "TransactionStatus",
+    "GuardDecision",
+    "SafetyRuleId",
+    "SafetyDecision",
 ]

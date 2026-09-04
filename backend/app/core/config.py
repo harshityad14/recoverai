@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 10.0
     LLM_TEMPERATURE: float = 0.0
 
+    # Deterministic Safety Guard Settings (Phase 5)
+    LLM_MIN_CONFIDENCE: float = 0.70
+    MAX_RECOVERY_RETRIES: int = 2
+
     # Frontend URL
     VITE_API_BASE_URL: str = "http://localhost:8000"
 
