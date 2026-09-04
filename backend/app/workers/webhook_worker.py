@@ -163,6 +163,13 @@ class WebhookWorker:
             amount = payment_entity.get("amount")
             currency = payment_entity.get("currency") or "INR"
             method = payment_entity.get("method")
+            notes = payment_entity.get("notes") or {}
+            payment_link_id = (
+                payment_entity.get("payment_link_id")
+                or notes.get("payment_link_id")
+                if isinstance(notes, dict)
+                else None
+            )
 
             db = self._get_db()
             should_close_db = self.db is None
@@ -179,6 +186,8 @@ class WebhookWorker:
                         currency=str(currency),
                         payment_method=method,
                         customer_id=customer_id,
+                        payment_link_id=payment_link_id,
+                        notes=notes if isinstance(notes, dict) else None,
                     )
                     txn_id = updated_txn.id if updated_txn else None
                     txn_status = updated_txn.status if updated_txn else "CAPTURED"

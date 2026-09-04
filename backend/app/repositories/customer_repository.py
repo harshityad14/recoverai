@@ -296,6 +296,26 @@ class CustomerRepository:
         self.db.refresh(txn)
         return txn
 
+    def get_transaction_by_payment_link_id(
+        self,
+        payment_link_id: str,
+    ) -> Optional[Transaction]:
+        """Find transaction by Razorpay payment link ID.
+
+        Args:
+            payment_link_id: The Razorpay payment link ID (e.g., plink_xxxxx).
+
+        Returns:
+            Optional[Transaction]: Found transaction or None.
+        """
+        if not payment_link_id:
+            return None
+        return (
+            self.db.query(Transaction)
+            .filter(Transaction.payment_link_id == payment_link_id)
+            .first()
+        )
+
     def mark_transaction_captured(
         self,
         razorpay_payment_id: str,
@@ -304,27 +324,51 @@ class CustomerRepository:
         currency: str = "INR",
         payment_method: Optional[str] = None,
         customer_id: Optional[str] = None,
+        payment_link_id: Optional[str] = None,
+        notes: Optional[Dict[str, Any]] = None,
     ) -> Optional[Transaction]:
-        """Acknowledge a captured payment and transition status to CAPTURED.
+        """Acknowledge a captured payment with attribution semantics.
 
-        Does NOT mark the transaction as RECOVERED. RECOVERED requires evidence
-        that a RecoverAI recovery action caused the capture (Phase 6/7).
+        - If the payment is correlated with a RecoverAI recovery action (e.g., matching
+          payment_link_id or recovery notes), transitions status to RECOVERED.
+        - Otherwise, acknowledges as organic capture and transitions to CAPTURED.
+        - Out-of-order protection: never overwrites a RECOVERED transaction back to CAPTURED.
 
         Args:
             razorpay_payment_id: Razorpay payment ID.
             razorpay_order_id: Razorpay order ID.
-            amount: Transaction amount.
+            amount: Transaction amount in subunits.
             currency: Currency code.
-            payment_method: Payment method.
+            payment_method: Payment method used.
             customer_id: Customer ID.
+            payment_link_id: Optional payment link ID for recovery attribution.
+            notes: Optional metadata notes from the payment entity.
 
         Returns:
             Optional[Transaction]: Updated or created transaction.
         """
-        # Try matching by payment ID first
-        txn = self.get_transaction_by_payment_id(razorpay_payment_id)
+        txn: Optional[Transaction] = None
+        notes_dict = notes if isinstance(notes, dict) else {}
+
+        # 1. Try matching by internal transaction_id from recovery notes
+        if "transaction_id" in notes_dict:
+            txn = (
+                self.db.query(Transaction)
+                .filter(Transaction.id == str(notes_dict["transaction_id"]))
+                .first()
+            )
+
+        # 2. Try matching by payment link ID
+        plink = payment_link_id or notes_dict.get("payment_link_id")
+        if not txn and plink:
+            txn = self.get_transaction_by_payment_link_id(plink)
+
+        # 3. Try matching by payment ID
+        if not txn:
+            txn = self.get_transaction_by_payment_id(razorpay_payment_id)
+
+        # 4. Try matching by order ID
         if not txn and razorpay_order_id:
-            # Try matching by order ID
             txn = (
                 self.db.query(Transaction)
                 .filter(Transaction.razorpay_order_id == razorpay_order_id)
@@ -332,17 +376,33 @@ class CustomerRepository:
             )
 
         if txn:
-            # Do not overwrite if already verified as RECOVERED by RecoverAI
-            if txn.status != "RECOVERED":
+            # Determine attribution: was this capture caused by RecoverAI?
+            is_recovered_by_recoverai = (
+                txn.payment_link_id is not None
+                or plink is not None
+                or notes_dict.get("recovered_by") == "RecoverAI"
+            )
+
+            if is_recovered_by_recoverai:
+                txn.status = "RECOVERED"
+                logger.info(
+                    "Transaction %s marked RECOVERED via verified recovery action (link=%s)",
+                    txn.id,
+                    txn.payment_link_id or plink,
+                )
+            elif txn.status != "RECOVERED":
+                # Organic / unrelated capture
                 txn.status = "CAPTURED"
+                logger.info("Transaction %s marked CAPTURED (organic capture)", txn.id)
+
             if customer_id and not txn.customer_id:
                 txn.customer_id = customer_id
+
             self.db.commit()
             self.db.refresh(txn)
-            logger.info("Transaction %s marked CAPTURED", txn.id)
             return txn
 
-        # If no prior failed transaction existed, create record with CAPTURED status
+        # If no prior failed transaction existed, record new payment with CAPTURED status
         if amount is not None:
             txn = Transaction(
                 razorpay_payment_id=razorpay_payment_id,

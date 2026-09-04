@@ -78,6 +78,23 @@ class Transaction(Base, TimestampMixin):
         nullable=True,
         doc="Human-readable error explanation from Razorpay",
     )
+    payment_link_id = Column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc="Razorpay payment link identifier (e.g., plink_xxxxx)",
+    )
+    payment_link_url = Column(
+        String(255),
+        nullable=True,
+        doc="Hosted short URL for customer recovery payment link",
+    )
+    payment_link_reference_id = Column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc="Merchant reference identifier for payment link idempotency",
+    )
 
     # Relationships
     retry_history = relationship(

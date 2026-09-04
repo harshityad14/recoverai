@@ -49,6 +49,12 @@ class RetryHistory(Base):
         nullable=True,
         doc="Result outcome of attempt (e.g., SUCCESS, FAILED, EXPIRED, PENDING)",
     )
+    external_id = Column(
+        String(64),
+        nullable=True,
+        index=True,
+        doc="External identifier such as Razorpay payment_link_id",
+    )
 
     # Relationships
     transaction = relationship("Transaction", back_populates="retry_history")

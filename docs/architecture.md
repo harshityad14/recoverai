@@ -80,9 +80,13 @@ Dashboard + Audit Log
 - **Isolation**: Pure deterministic business logic with zero external API calls (no Gemini, no Razorpay, no Redis, no network).
 - **Phase**: Implemented in Phase 5.
 
-### 6. Action Executor & Razorpay Integration
-- **Purpose**: Dispatches verified recovery actions against Razorpay Test Mode APIs (e.g., generating payment links, initiating customer re-prompts). Executes only if Phase 5 allows.
-- **Phase**: Scheduled for Phase 6.
+### 6. Action Executor & Razorpay Test Mode Integration (Phase 6)
+- **Purpose**: Dispatches verified recovery actions against Razorpay Test Mode APIs (`POST /v1/payment_links`). Executes only when authorized by Phase 5 Safety Guard.
+- **Core Principle**: "Only the final action produced by the deterministic Safety Guard may reach the Action Executor."
+- **Recovery Lifecycle Boundary**: "Payment Link creation is not equivalent to payment recovery. RecoverAI marks a transaction RECOVERED only after the corresponding successful payment event is verified."
+- **Security**: Strictly enforces Test Mode (`rzp_test_...`). Rejects Live Mode (`rzp_live_...`). Never logs or leaks API secrets.
+- **Idempotency**: Prevents duplicate link generation by checking active recovery records before dispatching external API requests.
+- **Phase**: Implemented in Phase 6.
 
 ### 7. Outcome Tracker, PostgreSQL & Dashboard
 - **Purpose**: Tracks recovery outcomes (`payment.captured` or final `payment.failed`), persists audit events to PostgreSQL, and surfaces real-time metrics on the React dashboard.
@@ -95,8 +99,8 @@ Dashboard + Audit Log
 To prevent false attribution of payment recoveries, RecoverAI distinguishes between organic captures and AI-assisted recoveries:
 
 - **`FAILED`**: Payment failed and has not yet been successfully recovered.
-- **`RECOVERY_PENDING`**: RecoverAI has identified the payment for recovery processing.
-- **`CAPTURED`**: Razorpay reports the payment was successfully captured, but without verified evidence that RecoverAI caused the success (e.g., customer completed checkout organically).
+- **`RECOVERY_PENDING`**: RecoverAI has identified the payment for recovery processing and dispatched a recovery action (e.g., created a payment link).
+- **`CAPTURED`**: Razorpay reports the payment was successfully captured organically, without verified evidence that RecoverAI caused the success.
 - **`RECOVERED`**: Payment was successfully captured as a direct result of a verified RecoverAI recovery action.
 - **`STOPPED`**: RecoverAI has determined that recovery should not continue.
 
@@ -108,14 +112,24 @@ To prevent false attribution of payment recoveries, RecoverAI distinguishes betw
 
 > "LLM recommendations are untrusted input. The deterministic Safety Guard is the final authority."
 
+> "Only the final action produced by the deterministic Safety Guard may reach the Action Executor."
+
+> "Payment Link creation is not equivalent to payment recovery. RecoverAI marks a transaction RECOVERED only after the corresponding successful payment event is verified."
+
 ```text
-Gemini Decision Engine
-        ↓
-Deterministic Safety Guard
-        ↓
-Final Recovery Action
-        ↓
+Safety Guard
+     ↓
+SafetyDecision
+     ↓
 Action Executor
+     ↓
+Razorpay Client
+     ↓
+Razorpay Test Mode
+     ↓
+payment.captured / payment.failed
+     ↓
+Outcome Tracker
 ```
 
 ```text
@@ -148,7 +162,15 @@ Phase 3 Normalized PaymentAnalysis
    ┌──────────────────────────────────────────────┐
    │  Phase 6: Action Executor                    │
    │  (Executes ONLY if Phase 5 allows)           │
-   └──────────────────────────────────────────────┘
+   └──────────────────┬───────────────────────────┘
+                      │
+                      ▼
+            Razorpay Client
+            (Test Mode ONLY)
+                      │
+                      ▼
+            Razorpay Test Mode API
+            (POST /v1/payment_links)
 ```
 
 The LLM has zero execution privileges. It cannot call Razorpay APIs, modify transaction states, create payment links, retry payments, send customer messages, or bypass safety rules.

@@ -7,6 +7,7 @@ from app.schemas.customer import CustomerHistorySummary
 from app.schemas.analysis import PaymentAnalysis
 from app.schemas.transaction import TransactionStatus
 from app.schemas.safety import GuardDecision, SafetyRuleId, SafetyDecision
+from app.schemas.action import ActionResult
 
 __all__ = [
     "HealthResponse",
@@ -20,4 +21,5 @@ __all__ = [
     "GuardDecision",
     "SafetyRuleId",
     "SafetyDecision",
+    "ActionResult",
 ]
