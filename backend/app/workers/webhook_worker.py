@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.queue import WEBHOOK_QUEUE_NAME, RedisQueueClient
 from app.core.redis import get_redis
@@ -561,3 +562,33 @@ class WebhookWorker:
 
         logger.info("WebhookWorker finished. Processed %d events.", processed_count)
         return processed_count
+
+
+def create_worker_for_deployment() -> WebhookWorker:
+    """Factory creating a fully configured WebhookWorker for deployment."""
+    decision_engine = None
+    if settings.GEMINI_API_KEY:
+        try:
+            from app.services.llm.client import GeminiLLMClient
+            decision_engine = DecisionEngine(llm_client=GeminiLLMClient())
+            logger.info("Initialized GeminiLLMClient for deployment worker.")
+        except Exception as exc:
+            logger.warning("Failed to initialize GeminiLLMClient for deployment worker: %s", exc)
+            decision_engine = DecisionEngine()
+    else:
+        decision_engine = DecisionEngine()
+
+    return WebhookWorker(decision_engine=decision_engine, auto_recover=True)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    logger.info("Starting RecoverAI Webhook Worker standalone...")
+    standalone_worker = create_worker_for_deployment()
+    try:
+        standalone_worker.run()
+    except KeyboardInterrupt:
+        logger.info("Webhook Worker interrupted by user. Exiting cleanly.")

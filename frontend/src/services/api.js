@@ -6,10 +6,20 @@
  * - GET /api/v1/transactions (attempt live query, graceful demo scenario fallback)
  */
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+function getApiUrl(path) {
+  if (!API_BASE_URL) {
+    return path;
+  }
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL}${cleanPath}`;
+}
+
 export async function fetchRecoveryMetrics() {
   // Try /api/v1/metrics/recovery first, fallback to /metrics/recovery
   try {
-    const res = await fetch('/api/v1/metrics/recovery');
+    const res = await fetch(getApiUrl('/api/v1/metrics/recovery'));
     if (res.ok) {
       return await res.json();
     }
@@ -18,7 +28,7 @@ export async function fetchRecoveryMetrics() {
   }
 
   try {
-    const res2 = await fetch('/metrics/recovery');
+    const res2 = await fetch(getApiUrl('/metrics/recovery'));
     if (res2.ok) {
       return await res2.json();
     }
@@ -30,7 +40,7 @@ export async function fetchRecoveryMetrics() {
 
 export async function fetchHealthStatus() {
   try {
-    const res = await fetch('/health');
+    const res = await fetch(getApiUrl('/health'));
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -43,7 +53,7 @@ export async function fetchHealthStatus() {
 export async function fetchTransactions() {
   // Attempt live transactions endpoint
   try {
-    const res = await fetch('/api/v1/transactions');
+    const res = await fetch(getApiUrl('/api/v1/transactions'));
     if (res.ok) {
       const data = await res.json();
       return {

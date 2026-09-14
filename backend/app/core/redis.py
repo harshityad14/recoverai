@@ -12,8 +12,8 @@ try:
     redis_client = redis.from_url(
         settings.REDIS_URL,
         decode_responses=True,
-        socket_connect_timeout=1.0,
-        socket_timeout=1.0,
+        socket_connect_timeout=5.0,
+        socket_timeout=5.0,
     )
 except Exception as e:
     logger.warning("Failed to initialize Redis client pool: %s", e)

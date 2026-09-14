@@ -13,10 +13,23 @@ class Settings(BaseSettings):
     # Application settings
     APP_NAME: str = "RecoverAI"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     API_V1_PREFIX: str = "/api/v1"
+
+    # CORS Configuration
+    CORS_ORIGINS: str = "*"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse CORS_ORIGINS into a list of origins for CORSMiddleware."""
+        if not self.CORS_ORIGINS or self.CORS_ORIGINS.strip() == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    # Worker Process Configuration
+    WORKER_ENABLED: bool = False
 
     # PostgreSQL Database
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/recoverai_db"

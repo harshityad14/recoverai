@@ -6,18 +6,23 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Normalize connection URL (e.g. postgres:// to postgresql:// for cloud compatibility)
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 # Determine connection arguments based on database dialect
 connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
+if db_url.startswith("sqlite"):
     connect_args["check_same_thread"] = False
-elif "postgresql" in settings.DATABASE_URL:
-    connect_args["connect_timeout"] = 2
+elif "postgresql" in db_url:
+    connect_args["connect_timeout"] = 10
 
 # SQLAlchemy Engine
 engine = create_engine(
-    settings.DATABASE_URL,
+    db_url,
     pool_pre_ping=True,
-    pool_timeout=2,
+    pool_timeout=10,
     connect_args=connect_args,
 )
 
